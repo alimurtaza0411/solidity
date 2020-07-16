@@ -23,7 +23,7 @@ contract wallet {
     uint Total_Holders;                             // total number of holders
     uint Amount;
     uint Transaction_Number;                        // counter for transaction
-    //
+
     //initialization
     constructor (string memory name) public payable {
         mainHolder = msg.sender;
@@ -33,7 +33,7 @@ contract wallet {
         Amount = msg.value;
         Transaction_Number = 0;
     }
-    //
+
     // add holders
     // done by main holder
     function giveAccessTo(address to, string memory name) public {
@@ -44,13 +44,13 @@ contract wallet {
         holders[to].accepted = 0;
         Total_Holders++;
     }
-    //
+
     // anyone with access can add in wallet
      function addAmount() public  payable{
         require(holders[msg.sender].access, "Do not have access");
         Amount += msg.value;
      }
-     //
+
      // ask for a Transaction_Number
      //only with access can ask
      // returns a Transaction number
@@ -65,22 +65,22 @@ contract wallet {
         transactions[Transaction_Number].acceptance = 0;
         return Transaction_Number;
      }
-     //
+
      // accepting a transaction
      // only holders can accept
      function acceptTransaction(uint transaction_number ) public {
         require(holders[msg.sender].access, "Do not have access");
-        //
+
         //if holder have accepted a transaction and transactions with
         //transaction number greater than this cannot accept
         require(holders[msg.sender].accepted<transaction_number, "Not allowed");
-        //
+
         // holders can accept a transaction in serial order
         // this number is stored in holders detail
         holders[msg.sender].accepted = transaction_number;
         transactions[transaction_number].acceptance++;
      }
-     //
+
      //complete the transaction
      function transact(uint transaction_number) public returns (bool) {
          require(transactions[transaction_number].Sender==msg.sender, "Do not have permission");
