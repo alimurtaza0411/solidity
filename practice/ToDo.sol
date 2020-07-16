@@ -13,8 +13,10 @@ contract ToDo{
         bool overdue;
     }
     Task[] tasks;
-    constructor() public{}
-    
+    constructor() public{
+
+    }
+
     modifier onlyCreator( uint taskNumber) {
         require(tasks[taskNumber-1].creator == msg.sender, "This Task does not belong to you");
         _;
@@ -31,12 +33,12 @@ contract ToDo{
         tasks.push(Task(tasks.length, now, now+(_timeSpam_inDays*86400), msg.sender, _author, _content, false,false));
         return (tasks.length, tasks[tasks.length-1].date, tasks[tasks.length-1].timeSpam) ;
     }
-    
+
     function getTask(uint taskNumber ) public onlyCreator(taskNumber) checkOverdue(taskNumber) returns (Task memory) {
         return tasks[taskNumber-1];
     }
-    
+
     function markComplete(uint taskNumber) public onlyCreator(taskNumber) checkOverdue(taskNumber) returns(bool){
         tasks[taskNumber-1].completed = true;
     }
-}    
+}
