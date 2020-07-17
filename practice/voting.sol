@@ -81,17 +81,17 @@ contract Ballot {
     }
 
     //finds winner
-    //by checking e3very candidates vote
-    function winningCandidate() public view returns (string memory winnerName_){
+    //by checking every candidates vote
+    function winningCandidate() public view returns (string memory winnerName){
         uint winningVoteCount = 0;
         uint winingCandidateNumber;
-        for (uint p = 0; p < candidates.length; p++) {
-            if (candidates[p].voteCount > winningVoteCount) {
-                winningVoteCount = candidates[p].voteCount;
-                winingCandidateNumber = p;
+        for (uint i = 0; i < candidates.length; i++) {
+            if (candidates[i].voteCount > winningVoteCount) {
+                winningVoteCount = candidates[i].voteCount;
+                winingCandidateNumber = i;
             }
         }
-        winnerName_ = candidates[winingCandidateNumber].name;
+        winnerName = candidates[winingCandidateNumber].name;
     }
 
 }
