@@ -1,97 +1,329 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity >=0.4.0 <0.7.0;
+pragma solidity ^0.5.0;
 
-contract Ballot {
-    // candidate standing for election
-    struct Candidate {
-        string name;       //candidate's name
-        uint voteCount;    //candidate's vote count
-    }
 
-    address public administrator;
-
+contract Election {
+    //Structure that represents a registered voter in the election
     struct Voter {
-        address delegate;
-        uint vote;
-        uint weight;    // weight of vote of the voter
-        bool voted;       // to check if voter has voted
+        bool isRegistered;
+        bool hasVoted; //Whether or not the voter has voted yet
+        address delegate; // The address of the delegate that the voter has chosen (default to the voter itself)
+        uint256 weight; // Weight of the Voter
+        uint256 voteTowards; //States the candidate's ID to which the voter has voted
     }
+    //Structure that represents a registered candidate in the election
+    struct Candidate {
+        uint256 ID; // The unique ID of the candidate
+        string name; // Name of the candidate
+        string proposal; // The proposal/promises of the candidate
+    }
+    mapping(uint => address) private voterID; // VoterID mapped to voter address
+    mapping(address => Voter) private voters; //address of voter mapped to the voter struct - To view all registered voters
+    mapping(uint256 => Candidate) private candidates; // ID of candidate mapped to the candidate struct - To view details of all registered candidates
+    mapping(uint256 => uint256) private voteCount; // ID of the candidate mapped to the votes of the candidate privately
 
-    mapping(address => Voter) public voters;
-    Candidate[] public candidates;
+    address public admin; // The address of the official/authority conducting the election
 
-    // modifier to check administrator
-    modifier onlyAdministrator() {
-        require(msg.sender == administrator,"Only   administrator can give right to vote.");
+    enum State {CREATED, ONGOING, CONCLUDED}
+    /*This enum represents the state of the election -
+    CREATED - The election contract has been created, voting has not begun yet
+    ONGOING - The voting has begun and is currently active
+    STOP - The voting period has ended and it is time for counting
+    */
+
+    State  electionState; // A variable of the type enum State to represent the election state
+    string public description;
+    uint256 public candidate_count; // Keeps a count of the registered candidates
+    uint256 public voter_count;
+    //modifier to check if the address is of the admin's as several functions can only be accessed by the admin
+    modifier checkAdmin(address owner) {
+        require(
+            owner == admin,
+            "Only the election admin has access to this function."
+        );
         _;
     }
-    constructor() public {
-        administrator = msg.sender;
-        voters[administrator].weight = 1;
+
+    //modifiers to check for the states of the election
+    modifier checkIfCreated() {
+        require(
+            electionState == State.CREATED,
+            "The election is either ongoing or has concluded."
+        );
+        _;
     }
 
-    //add candidate
-    function addCandidate(string memory candidateName) public onlyAdministrator{
-         candidates.push(Candidate({name: candidateName, voteCount: 0}));
+    modifier checkIfOngoing() {
+        require(
+            electionState == State.ONGOING,
+            "Election is not active or ongoing currently."
+        );
+        _;
     }
 
-    // give right to vote
-    function giveRightToVote(address voter) public  onlyAdministrator {
-
-        require(!voters[voter].voted, "The voter already voted.");
-        require(voters[voter].weight == 0, "Already have right");
-        voters[voter].weight = 1;
+    modifier checkIfComplete() {
+        require(electionState == State.CONCLUDED, "The election has not concluded yet.");
+        _;
     }
 
-    //assign delegate
-    function delegate(address _delegate) public {
-        Voter storage sender = voters[msg.sender];
-        address to = _delegate;
-        require(!sender.voted, "You already voted.");
-        require(to != msg.sender, "Self-delegation is not allowed.");
-        //this assigns delegate
-        //loop assigns the delegate of the delegate
-        // returns error if infinite loop occurs
-        while (voters[to].delegate != address(0)) {
-            to = voters[to].delegate;
-            require(to != msg.sender, "There is a loop loop ");
-        }
-        sender.voted = true;
-        sender.delegate = to;
-        Voter storage delegate_ = voters[to];
-        if (delegate_.voted) {
-            //if delegate has alredy voted
-            // then the vote is added to the candidate's vote count
-            //to whom delegate has alredy voted
-            candidates[delegate_.vote].voteCount += sender.weight;
-        } else {
-            delegate_.weight += sender.weight;
-        }
+    modifier checkNotComplete() {
+        require(electionState != State.CONCLUDED, "The election has concluded.");
+        _;
     }
 
-    // cast vote
-    function vote(uint CandidateNumber) public {
-        Voter storage sender = voters[msg.sender];
-        require(sender.weight != 0, "Has no right to vote");
-        require(!sender.voted, "Already voted.");
-        sender.voted = true;
-        sender.vote = CandidateNumber;
-
-        candidates[CandidateNumber].voteCount += sender.weight;
+    //modifier to check if a voter is a valid voter
+    modifier checkIfVoterValid(address owner) {
+        require(
+            !voters[owner].hasVoted,
+            "Voter has already voted."
+        );
+        require(
+            voters[owner].weight > 0,
+            "Voter has not been registered or already delegated their vote."
+        );
+        _;
     }
 
-    //finds winner
-    //by checking every candidates vote
-    function winningCandidate() public view returns (string memory winnerName){
-        uint winningVoteCount = 0;
-        uint winingCandidateNumber;
-        for (uint i = 0; i < candidates.length; i++) {
-            if (candidates[i].voteCount > winningVoteCount) {
-                winningVoteCount = candidates[i].voteCount;
-                winingCandidateNumber = i;
+    //modifier to check if the candidate being voted for is a valid candidate
+    modifier checkIfCandidateValid(uint256 _candidateId) {
+        require(
+            _candidateId > 0 && _candidateId <= candidate_count,
+            "Invalid candidate."
+        );
+        _;
+    }
+
+    //modifier to check if the person is not an admin
+    modifier checkNotAdmin(address owner) {
+        require(
+            owner != admin,
+            "The election admin is not allowed to access this function."
+        );
+        _;
+    }
+
+    //modifier to check if the voter is not yet registered for the addVoter function
+    modifier checkNotRegistered(address voter) {
+        require(
+            !voters[voter].hasVoted && voters[voter].weight == 0 && !voters[voter].isRegistered,
+            "Voter has already been registered."
+        );
+        _;
+    }
+
+    //events to be logged into the blockchain
+    event AddedAVoter(address voter);
+    event VotedSuccessfully(uint256 candidateId);
+    event DelegatedSuccessfully(address delegate);
+    event ElectionStart(State election_state);
+    event ElectionEnd(State election_state);
+    event AddedACandidate(uint candidateID, string candidateName, string candidateProposal);
+
+    // Initialization
+    constructor(address owner, string memory desc) public {
+        admin = owner;
+        electionState = State.CREATED; // Setting Eection state to CREATED
+        description = desc;
+    }
+ 
+    function checkState() public view returns (string memory state)
+    {
+        if(electionState == State.CREATED)
+        return "CREATED";
+        else if(electionState == State.ONGOING)
+        return "ONGOING";
+        else if(electionState == State.CONCLUDED)
+        return "CONCLUDED";
+    }
+    // To Add a candidate
+    // Only admin can add and
+    // candidate can be added only before election starts
+    function addCandidate(string memory _name, string memory _proposal, address owner)
+        public
+        checkAdmin(owner)
+        checkIfCreated
+    {
+        candidate_count++;
+        candidates[candidate_count].ID = candidate_count;
+        candidates[candidate_count].name = _name;
+        candidates[candidate_count].proposal = _proposal;
+        voteCount[candidate_count] = 0;
+        emit AddedACandidate(candidate_count, _name, _proposal);
+    }
+
+    // To add a voter
+    // only admin can add
+    // can add only before election starts
+    // can add a voter only one time
+    function addVoter(address _voter, address owner)
+        public
+        checkAdmin(owner)
+        checkNotAdmin(_voter)
+        checkIfCreated
+        checkNotRegistered(_voter)
+    {
+        voter_count++;
+        voterID[voter_count] = _voter;
+        voters[_voter].weight = 1;
+        voters[_voter].isRegistered = true;
+        emit AddedAVoter(_voter);
+    }
+
+    // setting Election state to ONGOING
+    // by admin
+    function startElection(address owner) public checkAdmin(owner) checkIfCreated {
+        electionState = State.ONGOING;
+        emit ElectionStart(electionState);
+    }
+
+    // To display candidates
+    function displayCandidate(uint256 _ID)
+        public
+        view
+        returns (
+            uint256 id,
+            string memory name,
+            string memory proposal
+        )
+    {
+        return (
+            candidates[_ID].ID,
+            candidates[_ID].name,
+            candidates[_ID].proposal
+        );
+    }
+
+    //Show winner of election
+    function showWinner()
+        public
+        view
+        checkIfComplete
+        returns (string memory name, uint256 id, uint256 votes)
+    {
+        uint256 max;
+        uint256 maxIndex;
+        string memory winner;
+        for (uint256 i = 1; i <= candidate_count; i++) {
+            if (voteCount[i] > max) {
+                winner = candidates[i].name;
+                maxIndex = i;
+                max = voteCount[i];
             }
         }
-        winnerName = candidates[winingCandidateNumber].name;
+        return (winner,maxIndex, max) ;
+    }
+
+    // to delegate the vote
+    // only during election is going on
+    // and by a voter who has not yet voted
+    function delegateVote(address _delegate, address owner)
+        public
+        checkNotComplete
+        checkIfVoterValid(owner)
+        checkIfVoterValid(_delegate)
+        checkNotAdmin(_delegate)
+        checkNotAdmin(owner)
+    {
+        require(_delegate != owner, "Self delegation is not allowed.");
+        address to = _delegate;
+        while (voters[to].delegate != address(0)) {
+            to = voters[to].delegate;
+
+            // To prevent infinite loop
+            if (to == owner) {
+                revert();
+            }
+        }
+        voters[owner].delegate = to;
+        emit DelegatedSuccessfully(_delegate);
+        voters[owner].hasVoted = true;
+        
+        if (voters[to].hasVoted) {
+            // if delegate has already voted
+            // voters vote is directly added to candidates vote count
+            voteCount[voters[to].voteTowards] += voters[owner].weight;
+            voters[owner].weight = 0;
+        } else {
+            voters[to].weight += voters[owner].weight;
+            voters[owner].weight = 0;
+        }
+    }
+
+    // to cast the vote
+    function vote(uint256 _ID, address owner)
+        public
+        checkIfOngoing
+        checkIfVoterValid(owner)
+        checkIfCandidateValid(_ID)
+    {
+        voters[owner].hasVoted = true;
+        voters[owner].voteTowards = _ID;
+        voteCount[_ID] += voters[owner].weight;
+        voters[owner].weight = 0;
+        emit VotedSuccessfully(_ID);
+    }
+
+    // Setting Election state to STOP
+    // by admin
+    function endElection(address owner) public checkAdmin(owner) {
+        electionState = State.CONCLUDED;
+        emit ElectionEnd(electionState);
+    }
+
+    // to display result
+    function showResults(uint256 _ID)
+        public
+        view
+        checkIfComplete
+        checkIfCandidateValid(_ID)
+        returns (
+            uint256 id,
+            string memory name,
+            uint256 count
+        )
+    {
+        return (_ID, candidates[_ID].name, voteCount[_ID]);
+    }
+
+    function getVoter(uint ID, address owner)  public view checkAdmin(owner)
+    returns (
+        uint256 id,
+        address voterAddress,
+        address delegate,
+        uint256 weight
+    )
+    {
+        return (
+            ID,
+            voterID[ID],
+            voters[voterID[ID]].delegate,
+            voters[voterID[ID]].weight
+        );
+    }
+
+    function voterProfile(address voterAddress) public view 
+    returns (
+        uint256 id,
+        address delegate,
+        uint256 weight,
+        uint256 votedTowards,
+        string memory name
+        )
+    {
+         
+        for(uint256 i = 1; i<= voter_count; i++)
+        {
+            if(voterAddress == voterID[i])
+            {
+                return (
+                    i,
+                    voters[voterID[i]].delegate,
+                    voters[voterID[i]].weight,
+                    voters[voterID[i]].voteTowards,
+                    candidates[voters[voterID[i]].voteTowards].name
+                    );
+            }
+        }
     }
 
 }
